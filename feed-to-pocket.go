@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/teerapap/feed-to-pocket/internal/feed"
 	"github.com/teerapap/feed-to-pocket/internal/log"
 	"github.com/teerapap/feed-to-pocket/internal/pocket"
 	"github.com/teerapap/feed-to-pocket/internal/util"
@@ -32,8 +33,8 @@ func init() {
 	flag.BoolVar(&help, "help", false, "Show help")
 	flag.BoolVar(&help, "h", false, "Show help")
 	flag.BoolVar(&verbose, "verbose", false, "Verbose output")
-	flag.BoolVar(&verbose, "v", false, "Verbose output")
 	flag.BoolVar(&version, "version", false, "Show version")
+	flag.BoolVar(&version, "v", false, "Show version")
 	flag.StringVar(&configFile, "config", "", "Config file")
 	flag.StringVar(&configFile, "c", "", "Config file")
 }
@@ -65,8 +66,14 @@ func handleExit() {
 	}
 }
 
+type MainConfig struct {
+	DataDir string `toml:"data_dir"`
+}
+
 type Config struct {
-	Pocket pocket.Config
+	Main   MainConfig    `toml:"main"`
+	Pocket pocket.Config `toml:"pocket"`
+	Rss    feed.Config   `toml:"rss"`
 }
 
 func main() {
@@ -95,11 +102,12 @@ func main() {
 
 	pc := util.Must1(pocket.NewClient(conf.Pocket))("creating Pocket client")
 
-	items := []pocket.NewItem{
-		{
-			Url: "https://google.com",
-		},
-	}
+	util.Must(feed.FindNewItems(conf.Rss, conf.Main.DataDir, func(items []pocket.NewItem, src feed.Source) error {
+		log.Printf("Source (%s) found %d new items...", src.Id, len(items))
+		if err := pc.AddItems(items); err != nil {
+			return fmt.Errorf("calling Pocket API to add new items: %w", err)
+		}
+		return nil
+	}))("feeding new items to pockets")
 
-	util.Must(pc.AddItems(items))("calling Pocket API to add new items")
 }

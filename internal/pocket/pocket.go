@@ -51,6 +51,10 @@ func (item NewItem) MarshalJSON() ([]byte, error) {
 }
 
 func (c *Client) AddItems(items []NewItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	// TOOD: Print more logs
 
 	body := struct {
 		ConsumerKey string    `json:"consumer_key"`
@@ -66,6 +70,10 @@ func (c *Client) AddItems(items []NewItem) error {
 	if err != nil {
 		return fmt.Errorf("encoding request in json: %w", err)
 	}
+	return c.send(jsonBody)
+}
+
+func (c *Client) send(jsonBody []byte) error {
 	log.Verbosef("Request Body: %s", string(jsonBody))
 
 	req, err := http.NewRequest("POST", "https://getpocket.com/v3/send", bytes.NewBuffer(jsonBody))
