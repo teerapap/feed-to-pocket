@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -77,13 +78,14 @@ type Config struct {
 }
 
 func main() {
+	log.Initialize(os.Stdout)
 	defer handleExit()
 
 	// Parse command-line
 	flag.Parse()
 	log.SetVerbose(verbose)
 
-	log.Verbosef("feed-to-pocket-%s", util.AppVersion)
+	log.Infof("feed-to-pocket-%s", util.AppVersion)
 	log.Verbosef("%s", os.Args)
 
 	if help {
@@ -97,17 +99,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Read config file
 	var conf Config
 	_ = util.Must1(toml.DecodeFile(configFile, &conf))("parsing config file")
+	conf.Main.DataDir = util.Must1(filepath.Abs(conf.Main.DataDir))("checking data directory")
 
+	// Create Pocket client
 	pc := util.Must1(pocket.NewClient(conf.Pocket))("creating Pocket client")
 
-	util.Must(feed.FindNewItems(conf.Rss, conf.Main.DataDir, func(items []pocket.NewItem, src feed.Source) error {
-		log.Printf("Source (%s) found %d new items...", src.Id, len(items))
+	// Find new items from feed sources
+	feed.FindNewItems(conf.Rss, conf.Main.DataDir, func(items []pocket.NewItem, src feed.Source) error {
+		// Add to new items to Pocket
 		if err := pc.AddItems(items); err != nil {
 			return fmt.Errorf("calling Pocket API to add new items: %w", err)
 		}
 		return nil
-	}))("feeding new items to pockets")
+	})
+	log.Infof("Total %d feed sources", len(conf.Rss.Sources))
 
 }

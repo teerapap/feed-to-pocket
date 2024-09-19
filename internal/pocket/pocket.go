@@ -54,7 +54,7 @@ func (c *Client) AddItems(items []NewItem) error {
 	if len(items) == 0 {
 		return nil
 	}
-	// TOOD: Print more logs
+	log.Printf("Adding %d new items to Pocket", len(items))
 
 	body := struct {
 		ConsumerKey string    `json:"consumer_key"`
@@ -74,6 +74,8 @@ func (c *Client) AddItems(items []NewItem) error {
 }
 
 func (c *Client) send(jsonBody []byte) error {
+	log.Indent()
+	defer log.Unindent()
 	log.Verbosef("Request Body: %s", string(jsonBody))
 
 	req, err := http.NewRequest("POST", "https://getpocket.com/v3/send", bytes.NewBuffer(jsonBody))

@@ -9,7 +9,8 @@ package log
 
 import (
 	"fmt"
-	"os"
+	"io"
+	"log"
 	"strings"
 )
 
@@ -23,6 +24,12 @@ var indentLevel int = 0
 var indent string
 var newlineAfterUnindent = false
 
+var logger *log.Logger
+
+func Initialize(out io.Writer) {
+	logger = log.New(out, "", log.LstdFlags|log.Lmsgprefix)
+}
+
 func IndentLevel() int {
 	return indentLevel
 }
@@ -30,7 +37,7 @@ func IndentLevel() int {
 func SetIndentLevel(level int) {
 	if level != indentLevel {
 		if level < indentLevel && newlineAfterUnindent {
-			fmt.Println("")
+			logger.Println("")
 		}
 		newlineAfterUnindent = false
 	}
@@ -46,13 +53,19 @@ func Unindent() {
 	SetIndentLevel(indentLevel - 1)
 }
 
+func write(level string, format string, v ...any) {
+	logger.SetPrefix(level + indent)
+	logger.Printf(format+"\n", v...)
+	newlineAfterUnindent = true
+}
+
 func Verbose(str string) {
 	Verbosef(str)
 }
 
 func Verbosef(format string, v ...any) {
 	if verbose {
-		fmt.Fprintf(os.Stdout, "%sVerbose: %s\n", indent, fmt.Sprintf(format, v...))
+		write("[V] ", format, v...)
 		newlineAfterUnindent = true
 	}
 }
@@ -62,8 +75,23 @@ func Print(str string) {
 }
 
 func Printf(format string, v ...any) {
-	fmt.Fprintf(os.Stdout, "%s%s\n", indent, fmt.Sprintf(format, v...))
-	newlineAfterUnindent = true
+	Infof(format, v...)
+}
+
+func Info(str string) {
+	Infof(str)
+}
+
+func Infof(format string, v ...any) {
+	write("[I] ", format, v...)
+}
+
+func Warn(str string) {
+	Warnf(str)
+}
+
+func Warnf(format string, v ...any) {
+	write("[W] ", format, v...)
 }
 
 func Error(str string) {
@@ -71,8 +99,7 @@ func Error(str string) {
 }
 
 func Errorf(format string, v ...any) {
-	fmt.Fprintf(os.Stderr, "%sError: %s\n", indent, fmt.Sprintf(format, v...))
-	newlineAfterUnindent = true
+	write("[E] ", format, v...)
 }
 
 func Panic(str string) {
@@ -80,7 +107,7 @@ func Panic(str string) {
 }
 
 func Panicf(format string, v ...any) {
+	write("[F] ", format, v...)
 	s := fmt.Sprintf(format, v...)
-	fmt.Fprintf(os.Stderr, "%sError: %s\n", indent, s)
 	panic(s)
 }
