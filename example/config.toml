@@ -3,6 +3,11 @@
 data_dir = "./data"
 
 
+[main.http_server]
+listen = ":8080"
+base_url = "http://127.0.0.1:8080"
+
+
 [pocket]
 consumer_key = "consumer key here"
 access_token = "access token here"
@@ -14,6 +19,7 @@ start_date = 2024-01-01T00:00:00
 [rss.sources.xkcd]
 name = "xkcd"
 url = "https://xkcd.com/rss.xml"
+use_server = true
 
 [rss.sources.wired]
 name = "Wired"

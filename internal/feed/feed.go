@@ -19,7 +19,6 @@ import (
 
 	"github.com/mmcdole/gofeed"
 	"github.com/teerapap/feed-to-pocket/internal/log"
-	"github.com/teerapap/feed-to-pocket/internal/pocket"
 )
 
 type Config struct {
@@ -31,10 +30,20 @@ type Source struct {
 	Id        string    `toml:"-"`
 	Name      string    `toml:"name"`
 	Url       string    `toml:"url"`
+	UseServer bool      `toml:"use_server"`
 	StartDate time.Time `toml:"start_date,omitempty"`
 }
 
-type NewItemConsumer = func([]pocket.NewItem, Source) (bool, error)
+type Item struct {
+	Id       string
+	Url      string
+	Title    string
+	Time     time.Time
+	Tags     []string
+	Document string
+}
+
+type NewItemConsumer = func([]Item, Source) (bool, error)
 
 func FindNewItems(config Config, dataDir string, consumer NewItemConsumer) {
 	// Sort sources by id
@@ -114,7 +123,7 @@ func findNewItems(source Source, dir string, consumer NewItemConsumer) error {
 	return nil
 }
 
-func compareFeedItems(oldFeed *gofeed.Feed, newFeed *gofeed.Feed, source Source) []pocket.NewItem {
+func compareFeedItems(oldFeed *gofeed.Feed, newFeed *gofeed.Feed, source Source) []Item {
 	if oldFeed != nil {
 		log.Printf("Comparing items - old=%d, new=%d", len(oldFeed.Items), len(newFeed.Items))
 	} else {
@@ -123,7 +132,7 @@ func compareFeedItems(oldFeed *gofeed.Feed, newFeed *gofeed.Feed, source Source)
 	log.Indent()
 	defer log.Unindent()
 
-	newItems := make([]pocket.NewItem, 0)
+	newItems := make([]Item, 0)
 
 	guids := make(map[string]bool)
 	links := make(map[string]bool)
@@ -135,50 +144,64 @@ func compareFeedItems(oldFeed *gofeed.Feed, newFeed *gofeed.Feed, source Source)
 	}
 
 	for _, item := range newFeed.Items {
-		var itemTime int64
 
-		itemId := item.GUID
 		if item.Link == "" {
-			log.Verbosef("[%s] Item has no link", itemId)
+			log.Verbosef("[%s] Item has no link", item.GUID)
 			continue
-		} else {
-			itemId = item.Link
+		}
+
+		output := Item{
+			Id:    item.Link,
+			Url:   item.Link,
+			Title: item.Title,
+			Tags:  []string{source.Id},
 		}
 
 		if item.PublishedParsed != nil {
 			if item.PublishedParsed.Before(source.StartDate) {
-				log.Verbosef("[%s] Item was published (%s) before start date (%s)", itemId, item.PublishedParsed.UTC().Format(time.DateTime), source.StartDate.UTC().Format(time.DateTime))
+				log.Verbosef("[%s] Item was published (%s) before start date (%s)", output.Id, item.PublishedParsed.UTC().Format(time.DateTime), source.StartDate.UTC().Format(time.DateTime))
 				continue
 			}
-			itemTime = item.PublishedParsed.Unix()
+			output.Time = *item.PublishedParsed
 		} else {
 			if item.UpdatedParsed != nil {
 				if item.UpdatedParsed.Before(source.StartDate) {
-					log.Verbosef("[%s] Item was updated (%s) before start date (%s)", itemId, item.UpdatedParsed.UTC().Format(time.DateTime), source.StartDate.UTC().Format(time.DateTime))
+					log.Verbosef("[%s] Item was updated (%s) before start date (%s)", output.Id, item.UpdatedParsed.UTC().Format(time.DateTime), source.StartDate.UTC().Format(time.DateTime))
 					continue
 				}
-				itemTime = item.UpdatedParsed.Unix()
+				output.Time = *item.UpdatedParsed
 			}
 		}
 
 		if item.GUID != "" && guids[item.GUID] {
-			log.Verbosef("[%s] Item GUID matched in old feed - guid=%s", itemId, item.GUID)
+			log.Verbosef("[%s] Item GUID matched in old feed - guid=%s", output.Id, item.GUID)
 			continue
 		}
 		if links[item.Link] {
-			log.Verbosef("[%s] Item link matched in old feed", itemId)
+			log.Verbosef("[%s] Item link matched in old feed", output.Id)
 			continue
 		}
 
-		newItems = append(newItems, pocket.NewItem{
-			Url:   item.Link,
-			Title: item.Title,
-			Time:  itemTime,
-			Tags:  []string{source.Id},
-		})
+		if source.UseServer {
+			output.Document = buildDocument(item)
+		}
+
+		newItems = append(newItems, output)
 	}
 
 	return newItems
+}
+
+func buildDocument(item *gofeed.Item) string {
+	return fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+  <title>%s</title>
+  <meta charset="UTF-8">
+</head>
+<body>%s</body>
+</html>
+		`, item.Title, item.Description)
 }
 
 func readOldFeed(path string) (*gofeed.Feed, error) {

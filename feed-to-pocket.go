@@ -13,9 +13,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/BurntSushi/toml"
 	"github.com/teerapap/feed-to-pocket/internal/feed"
+	"github.com/teerapap/feed-to-pocket/internal/http_server"
 	"github.com/teerapap/feed-to-pocket/internal/log"
 	"github.com/teerapap/feed-to-pocket/internal/pocket"
 	"github.com/teerapap/feed-to-pocket/internal/util"
@@ -70,7 +72,8 @@ func handleExit() {
 }
 
 type MainConfig struct {
-	DataDir string `toml:"data_dir"`
+	DataDir    string             `toml:"data_dir"`
+	HttpServer http_server.Config `toml:"http_server"`
 }
 
 type Config struct {
@@ -109,11 +112,14 @@ func main() {
 	// Create Pocket client
 	pc := util.Must1(pocket.NewClient(conf.Pocket))("creating Pocket client")
 
+	// Start http server
+	hc := util.Must1(http_server.Start(conf.Main.HttpServer))("starting content http server")
+
 	totalItems := 0
 	totalItemErrors := 0
 
 	// Find new items from feed sources
-	feed.FindNewItems(conf.Rss, conf.Main.DataDir, func(items []pocket.NewItem, src feed.Source) (bool, error) {
+	feed.FindNewItems(conf.Rss, conf.Main.DataDir, func(items []feed.Item, src feed.Source) (bool, error) {
 		// Add to new items to Pocket
 		totalItems = totalItems + len(items)
 		if dryRun {
@@ -122,12 +128,46 @@ func main() {
 		}
 		log.Indent()
 		defer log.Unindent()
-		if err := pc.AddItems(items); err != nil {
+
+		scList := make([]*http_server.Content, 0)
+		pItems := make([]pocket.NewItem, 0, len(items))
+		for _, item := range items {
+			finalUrl := item.Url
+			if src.UseServer {
+				sc := hc.ServeContent(item.Id, item.Document)
+				scList = append(scList, sc)
+				finalUrl = sc.FullUrl
+			}
+			pItems = append(pItems, pocket.NewItem{
+				Url:   finalUrl,
+				Title: item.Title,
+				Time:  item.Time.Unix(),
+				Tags:  item.Tags,
+			})
+		}
+
+		if err := pc.AddItems(pItems); err != nil {
 			totalItemErrors = totalItemErrors + len(items)
 			return false, fmt.Errorf("calling Pocket API to add new items: %w", err)
 		}
+
+		var syncAll sync.WaitGroup
+		for _, sc := range scList {
+			syncAll.Add(1)
+			go func() {
+				defer syncAll.Done()
+				sc.Work.Wait()
+			}()
+		}
+		// wait for all servings content to be fetched once before continue
+		syncAll.Wait()
 		return true, nil
 	})
+
+	if err := hc.Shutdown(); err != nil {
+		log.Errorf("%s", err)
+	}
+
 	log.Info("Summary:")
 	log.Indent()
 	log.Infof("Total %d feed sources", len(conf.Rss.Sources))
