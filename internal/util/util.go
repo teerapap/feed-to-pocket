@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-const AppVersion = "v0.1.0"
+const AppVersion = "v0.2.0"
 
 func Must(err error) func(doing string) {
 	return func(doing string) {
