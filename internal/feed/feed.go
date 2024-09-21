@@ -34,7 +34,7 @@ type Source struct {
 	StartDate time.Time `toml:"start_date,omitempty"`
 }
 
-type NewItemConsumer = func([]pocket.NewItem, Source) error
+type NewItemConsumer = func([]pocket.NewItem, Source) (bool, error)
 
 func FindNewItems(config Config, dataDir string, consumer NewItemConsumer) {
 	// Sort sources by id
@@ -98,20 +98,17 @@ func findNewItems(source Source, dir string, consumer NewItemConsumer) error {
 
 	// Consume new items
 	log.Printf("Found %d new items", len(newItems))
-	if len(newItems) > 0 {
-		if err := func() error {
-			log.Indent()
-			defer log.Unindent()
-			return consumer(newItems, source)
-		}(); err != nil {
-			return fmt.Errorf("consuming new items: %w", err)
-		}
+	saved, err := consumer(newItems, source)
+	if err != nil {
+		return fmt.Errorf("consuming new items: %w", err)
 	}
 
 	// Save new feed file
-	log.Printf("Saving new feed file at %s", rssPath)
-	if err := os.Rename(tmpFile.Name(), rssPath); err != nil {
-		return fmt.Errorf("saving new rss file: %w", err)
+	if saved {
+		log.Printf("Saving new feed file at %s", rssPath)
+		if err := os.Rename(tmpFile.Name(), rssPath); err != nil {
+			return fmt.Errorf("saving new rss file: %w", err)
+		}
 	}
 
 	return nil

@@ -25,6 +25,7 @@ import (
 var help bool
 var verbose bool
 var version bool
+var dryRun bool
 var configFile string
 
 func init() {
@@ -36,6 +37,7 @@ func init() {
 	flag.BoolVar(&verbose, "verbose", false, "Verbose output")
 	flag.BoolVar(&version, "version", false, "Show version")
 	flag.BoolVar(&version, "v", false, "Show version")
+	flag.BoolVar(&dryRun, "dry-run", false, "Dry run mode")
 	flag.StringVar(&configFile, "config", "", "Config file")
 	flag.StringVar(&configFile, "c", "", "Config file")
 }
@@ -107,14 +109,27 @@ func main() {
 	// Create Pocket client
 	pc := util.Must1(pocket.NewClient(conf.Pocket))("creating Pocket client")
 
-	// Find new items from feed sources
-	feed.FindNewItems(conf.Rss, conf.Main.DataDir, func(items []pocket.NewItem, src feed.Source) error {
-		// Add to new items to Pocket
-		if err := pc.AddItems(items); err != nil {
-			return fmt.Errorf("calling Pocket API to add new items: %w", err)
-		}
-		return nil
-	})
-	log.Infof("Total %d feed sources", len(conf.Rss.Sources))
+	totalItems := 0
+	totalItemErrors := 0
 
+	// Find new items from feed sources
+	feed.FindNewItems(conf.Rss, conf.Main.DataDir, func(items []pocket.NewItem, src feed.Source) (bool, error) {
+		// Add to new items to Pocket
+		totalItems = totalItems + len(items)
+		if dryRun {
+			log.Info("Skip adding to pocket because of dry-run mode")
+			return false, nil
+		}
+		log.Indent()
+		defer log.Unindent()
+		if err := pc.AddItems(items); err != nil {
+			totalItemErrors = totalItemErrors + len(items)
+			return false, fmt.Errorf("calling Pocket API to add new items: %w", err)
+		}
+		return true, nil
+	})
+	log.Info("Summary:")
+	log.Indent()
+	log.Infof("Total %d feed sources", len(conf.Rss.Sources))
+	log.Infof("Total %d new items (error=%d)", totalItems, totalItemErrors)
 }
