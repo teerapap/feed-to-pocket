@@ -8,6 +8,8 @@
 package feed
 
 import (
+	"bytes"
+	_ "embed"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"text/template"
 	"time"
 
 	"github.com/mmcdole/gofeed"
@@ -27,11 +30,11 @@ type Config struct {
 }
 
 type Source struct {
-	Id        string    `toml:"-"`
-	Name      string    `toml:"name"`
-	Url       string    `toml:"url"`
-	UseServer bool      `toml:"use_server"`
-	StartDate time.Time `toml:"start_date,omitempty"`
+	Id               string    `toml:"-"`
+	Name             string    `toml:"name"`
+	Url              string    `toml:"url"`
+	ForceArticleView bool      `toml:"force_article_view"`
+	StartDate        time.Time `toml:"start_date,omitempty"`
 }
 
 type Item struct {
@@ -182,8 +185,13 @@ func compareFeedItems(oldFeed *gofeed.Feed, newFeed *gofeed.Feed, source Source)
 			continue
 		}
 
-		if source.UseServer {
-			output.Document = buildDocument(item)
+		if source.ForceArticleView {
+			doc, err := buildDocument(item)
+			if err != nil {
+				log.Errorf("[%s] Error while building document: %s", output.Id, err)
+				continue
+			}
+			output.Document = doc
 		}
 
 		newItems = append(newItems, output)
@@ -192,16 +200,22 @@ func compareFeedItems(oldFeed *gofeed.Feed, newFeed *gofeed.Feed, source Source)
 	return newItems
 }
 
-func buildDocument(item *gofeed.Item) string {
-	return fmt.Sprintf(`<!DOCTYPE html>
-<html>
-<head>
-  <title>%s</title>
-  <meta charset="UTF-8">
-</head>
-<body>%s</body>
-</html>
-		`, item.Title, item.Description)
+//go:embed document.html
+var documentTmplStr string
+var documentTmpl = createTemplate("document-template", documentTmplStr)
+
+func createTemplate(name string, t string) *template.Template {
+	return template.Must(template.New(name).Parse(t))
+}
+
+func buildDocument(item *gofeed.Item) (string, error) {
+	buf := new(bytes.Buffer)
+
+	if err := documentTmpl.Execute(buf, item); err != nil {
+		return "", fmt.Errorf("executing document template: %w", err)
+	}
+
+	return buf.String(), nil
 }
 
 func readOldFeed(path string) (*gofeed.Feed, error) {

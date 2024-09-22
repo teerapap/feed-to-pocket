@@ -90,7 +90,6 @@ func main() {
 	flag.Parse()
 	log.SetVerbose(verbose)
 
-	log.Infof("feed-to-pocket-%s", util.AppVersion)
 	log.Verbosef("%s", os.Args)
 
 	if help {
@@ -103,6 +102,7 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
+	log.Infof("feed-to-pocket-%s", util.AppVersion)
 
 	// Read config file
 	var conf Config
@@ -133,7 +133,7 @@ func main() {
 		pItems := make([]pocket.NewItem, 0, len(items))
 		for _, item := range items {
 			finalUrl := item.Url
-			if src.UseServer {
+			if src.ForceArticleView {
 				sc := hc.ServeContent(item.Id, item.Document)
 				scList = append(scList, sc)
 				finalUrl = sc.FullUrl

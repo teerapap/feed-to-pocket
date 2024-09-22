@@ -9,18 +9,24 @@ package http_server
 
 import (
 	"context"
+	"crypto/md5"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"path"
+	"strings"
 	"sync"
 
 	"github.com/teerapap/feed-to-pocket/internal/log"
+	"github.com/teerapap/feed-to-pocket/internal/util"
 )
 
 type Config struct {
-	ListenAddr string `toml:"listen"`
-	BaseUrl    string `toml:"base_url"`
+	ListenAddr string  `toml:"listen"`
+	BaseUrl    string  `toml:"base_url"`
+	baseUrl    url.URL // parsed BaseUrl
+	RandomUrl  bool    `toml:"random_url,omitempty"`
 }
 
 type Server struct {
@@ -39,6 +45,10 @@ type Content struct {
 }
 
 func Start(conf Config) (*Server, error) {
+	if err := conf.baseUrl.UnmarshalBinary([]byte(conf.BaseUrl)); err != nil {
+		return nil, fmt.Errorf("http_server.base_url is not valid: %w", err)
+	}
+
 	log.Infof("Starting content HTTP server on %s", conf.ListenAddr)
 	server := &Server{Config: conf}
 	server.Contents = make(map[string]*Content, 0)
@@ -51,12 +61,16 @@ func Start(conf Config) (*Server, error) {
 	}
 
 	// Handlers
-	http.HandleFunc("GET /content", func(w http.ResponseWriter, r *http.Request) {
-		log.Verbosef("Received GET content request: %s", r.URL.Query())
+	http.HandleFunc("GET /content/", func(w http.ResponseWriter, r *http.Request) {
+		log.Verbosef("Received GET content request: %s", r.URL.Path)
 
 		// get key querystring value
-		key := r.URL.Query().Get("id")
-		content := server.Contents[key]
+		hashId, htmlExt := strings.CutSuffix(path.Base(r.URL.Path), ".html")
+		if !htmlExt {
+			http.NotFound(w, r)
+			return
+		}
+		content := server.Contents[hashId]
 		if content == nil {
 			http.NotFound(w, r)
 			return
@@ -82,16 +96,22 @@ func Start(conf Config) (*Server, error) {
 }
 
 func (hc *Server) ServeContent(id string, document string) *Content {
-	safeId := url.QueryEscape(id)
-	fullUrl := hc.Config.BaseUrl + "/content?id=" + safeId
+	var hashId string
+	if hc.Config.RandomUrl {
+		hashId = fmt.Sprintf("%x", md5.Sum([]byte(id+util.RandString(8))))
+	} else {
+		hashId = fmt.Sprintf("%x", md5.Sum([]byte(id)))
+	}
+	fullUrl := hc.Config.baseUrl.JoinPath("content", hashId+".html")
+
 	c := &Content{
 		Id:       id,
-		FullUrl:  fullUrl,
+		FullUrl:  fullUrl.String(),
 		Document: document,
 	}
 	c.Work.Add(1)
-	hc.Contents[id] = c
-	log.Infof("Serving content at %s", fullUrl)
+	hc.Contents[hashId] = c
+	log.Infof("Serving content %s at %s", id, fullUrl)
 	return c
 }
 

@@ -10,6 +10,7 @@ package util
 import (
 	"errors"
 	"fmt"
+	"math/rand"
 	"os"
 	"strings"
 )
@@ -67,4 +68,14 @@ func CreateWorkDir(path *string, clean bool) (bool, error) {
 		}
 		return false, nil
 	}
+}
+
+const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+func RandString(length int) string {
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = letterBytes[rand.Intn(len(letterBytes))]
+	}
+	return string(b)
 }
