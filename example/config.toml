@@ -29,3 +29,9 @@ force_article_view = true
 name = "Wired"
 url = "https://www.wired.com/feed/rss"
 
+
+[email]
+server = "imap.gmail.com:993"
+username = "somebody@gmail.com"
+app_password = "app-specifc password"
+

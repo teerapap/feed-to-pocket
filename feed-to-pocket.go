@@ -16,6 +16,7 @@ import (
 	"sync"
 
 	"github.com/BurntSushi/toml"
+	"github.com/teerapap/feed-to-pocket/internal/email"
 	"github.com/teerapap/feed-to-pocket/internal/feed"
 	"github.com/teerapap/feed-to-pocket/internal/http_server"
 	"github.com/teerapap/feed-to-pocket/internal/log"
@@ -80,6 +81,7 @@ type Config struct {
 	Main   MainConfig    `toml:"main"`
 	Pocket pocket.Config `toml:"pocket"`
 	Rss    feed.Config   `toml:"rss,omitempty"`
+	Email  email.Config  `toml:"email,omitempty"`
 }
 
 func main() {
@@ -174,6 +176,35 @@ func main() {
 		syncAll.Wait()
 		return true, nil
 	})
+
+	util.Must(email.FindNewItems(conf.Email, func(items []email.Item) (bool, error) {
+
+		// Add to new items to Pocket
+		totalItems = totalItems + len(items)
+		if dryRun {
+			log.Info("Skip adding to pocket because of dry-run mode")
+			return false, nil
+		}
+		log.Indent()
+		defer log.Unindent()
+
+		pItems := make([]pocket.NewItem, 0, len(items))
+		for _, item := range items {
+			pItems = append(pItems, pocket.NewItem{
+				Url:   item.Url,
+				Title: item.Title,
+				Time:  item.Time.Unix(),
+				Tags:  item.Tags,
+			})
+		}
+
+		if err := pc.AddItems(pItems); err != nil {
+			totalItemErrors = totalItemErrors + len(items)
+			return false, fmt.Errorf("calling Pocket API to add new items: %w", err)
+		}
+
+		return true, nil
+	}))("reading emails")
 
 	if hc != nil {
 		if err := hc.Shutdown(); err != nil {
