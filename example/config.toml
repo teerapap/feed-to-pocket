@@ -11,6 +11,8 @@ base_url = "http://127.0.0.1:8080"
 [pocket]
 consumer_key = "consumer key here"
 access_token = "access token here"
+## Send to pocket in batch. Too many items may fail half-way due to timeout
+batch = 20
 
 
 [rss]

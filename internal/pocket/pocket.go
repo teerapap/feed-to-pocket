@@ -19,6 +19,7 @@ import (
 type Config struct {
 	ConsumerKey string `toml:"consumer_key"`
 	AccessToken string `toml:"access_token"`
+	Batch       int    `toml:"batch"`
 }
 
 type Client struct {
@@ -54,23 +55,37 @@ func (c *Client) AddItems(items []NewItem) error {
 	if len(items) == 0 {
 		return nil
 	}
+	batch := c.Config.Batch
+	if batch <= 0 {
+		batch = 20
+	}
 	log.Printf("Adding %d new items to Pocket", len(items))
 
-	body := struct {
-		ConsumerKey string    `json:"consumer_key"`
-		AccessToken string    `json:"access_token"`
-		Actions     []NewItem `json:"actions"`
-	}{
-		ConsumerKey: c.Config.ConsumerKey,
-		AccessToken: c.Config.AccessToken,
-		Actions:     items,
+	for i := 0; i < len(items); i = i + batch {
+		bItems := items[i:min(i+batch, len(items))]
+		if batch <= len(items) {
+			log.Printf("(Batch %d) %d items", (i/batch)+1, len(bItems))
+		}
+		body := struct {
+			ConsumerKey string    `json:"consumer_key"`
+			AccessToken string    `json:"access_token"`
+			Actions     []NewItem `json:"actions"`
+		}{
+			ConsumerKey: c.Config.ConsumerKey,
+			AccessToken: c.Config.AccessToken,
+			Actions:     bItems,
+		}
+
+		jsonBody, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("encoding request in json: %w", err)
+		}
+		if err := c.send(jsonBody); err != nil {
+			return err
+		}
 	}
 
-	jsonBody, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("encoding request in json: %w", err)
-	}
-	return c.send(jsonBody)
+	return nil
 }
 
 func (c *Client) send(jsonBody []byte) error {
