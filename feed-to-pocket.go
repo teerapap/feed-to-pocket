@@ -79,7 +79,7 @@ type MainConfig struct {
 type Config struct {
 	Main   MainConfig    `toml:"main"`
 	Pocket pocket.Config `toml:"pocket"`
-	Rss    feed.Config   `toml:"rss"`
+	Rss    feed.Config   `toml:"rss,omitempty"`
 }
 
 func main() {
@@ -112,8 +112,11 @@ func main() {
 	// Create Pocket client
 	pc := util.Must1(pocket.NewClient(conf.Pocket))("creating Pocket client")
 
-	// Start http server
-	hc := util.Must1(http_server.Start(conf.Main.HttpServer))("starting content http server")
+	// Prepare http server
+	var hc *http_server.Server = nil
+	startServerOnce := sync.OnceValues(func() (*http_server.Server, error) {
+		return http_server.NewServer(conf.Main.HttpServer)
+	})
 
 	totalItems := 0
 	totalItemErrors := 0
@@ -134,6 +137,14 @@ func main() {
 		for _, item := range items {
 			finalUrl := item.Url
 			if src.ForceArticleView {
+
+				// Get and start http server if needed
+				var err error
+				hc, err = startServerOnce()
+				if err != nil {
+					return false, fmt.Errorf("starting content server: %w", err)
+				}
+
 				sc := hc.ServeContent(item.Id, item.Document)
 				scList = append(scList, sc)
 				finalUrl = sc.FullUrl
@@ -156,7 +167,7 @@ func main() {
 			syncAll.Add(1)
 			go func() {
 				defer syncAll.Done()
-				sc.Work.Wait()
+				<-sc.Done
 			}()
 		}
 		// wait for all servings content to be fetched once before continue
@@ -164,8 +175,10 @@ func main() {
 		return true, nil
 	})
 
-	if err := hc.Shutdown(); err != nil {
-		log.Errorf("%s", err)
+	if hc != nil {
+		if err := hc.Shutdown(); err != nil {
+			log.Errorf("%s", err)
+		}
 	}
 
 	log.Info("Summary:")

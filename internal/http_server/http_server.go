@@ -16,7 +16,6 @@ import (
 	"net/url"
 	"path"
 	"strings"
-	"sync"
 
 	"github.com/teerapap/feed-to-pocket/internal/log"
 	"github.com/teerapap/feed-to-pocket/internal/util"
@@ -32,7 +31,7 @@ type Config struct {
 type Server struct {
 	Config   Config
 	Srv      http.Server
-	Stop     sync.WaitGroup
+	stopped  chan error
 	Contents map[string]*Content
 }
 
@@ -40,19 +39,20 @@ type Content struct {
 	Id       string
 	Document string
 	FullUrl  string
-	WorkOnce sync.Once
-	Work     sync.WaitGroup
+	Done     chan error
 }
 
-func Start(conf Config) (*Server, error) {
+func NewServer(conf Config) (*Server, error) {
 	if err := conf.baseUrl.UnmarshalBinary([]byte(conf.BaseUrl)); err != nil {
 		return nil, fmt.Errorf("http_server.base_url is not valid: %w", err)
 	}
 
 	log.Infof("Starting content HTTP server on %s", conf.ListenAddr)
-	server := &Server{Config: conf}
-	server.Contents = make(map[string]*Content, 0)
-	server.Stop.Add(1)
+	server := &Server{
+		Config:   conf,
+		Contents: make(map[string]*Content, 0),
+		stopped:  make(chan error),
+	}
 
 	// Try to bind address
 	l, err := net.Listen("tcp", conf.ListenAddr)
@@ -78,17 +78,19 @@ func Start(conf Config) (*Server, error) {
 
 		fmt.Fprint(w, content.Document)
 		log.Infof("Content is served: %s", content.Id)
-		content.WorkOnce.Do(func() {
-			content.Work.Done()
-		})
+		select {
+		case content.Done <- nil:
+		default:
+		}
 	})
 
 	go func() {
-		defer server.Stop.Done()
-
-		if err := server.Srv.Serve(l); err != http.ErrServerClosed {
+		err := server.Srv.Serve(l)
+		if err != http.ErrServerClosed {
 			log.Errorf("listening and serve http content: %v", err)
+			server.stopped <- err
 		}
+		close(server.stopped)
 	}()
 	log.Infof("Started content HTTP server on %s", conf.ListenAddr)
 
@@ -108,8 +110,8 @@ func (hc *Server) ServeContent(id string, document string) *Content {
 		Id:       id,
 		FullUrl:  fullUrl.String(),
 		Document: document,
+		Done:     make(chan error, 1),
 	}
-	c.Work.Add(1)
 	hc.Contents[hashId] = c
 	log.Infof("Serving content %s at %s", id, fullUrl)
 	return c
@@ -120,7 +122,7 @@ func (hc *Server) Shutdown() error {
 	if err := hc.Srv.Shutdown(context.Background()); err != nil {
 		return fmt.Errorf("shutting down: %w", err)
 	}
+	log.Info("Shut down content HTTP server")
 
-	hc.Stop.Wait()
-	return nil
+	return <-hc.stopped
 }
