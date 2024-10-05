@@ -1,6 +1,6 @@
 //
 // http_server.go
-// Copyright (C) 2024 Teerapap Changwichukarn <teerapap@treeboxsolutions.com>
+// Copyright (C) 2024 Teerapap Changwichukarn <teerapap.c@gmail.com>
 //
 // Distributed under terms of the MIT license.
 //
