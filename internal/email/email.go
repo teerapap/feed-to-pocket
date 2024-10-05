@@ -195,7 +195,7 @@ func convertEmailToItem(msg *imap.Message, section *imap.BodySectionName) (Item,
 	body = string(c)
 	matches := iftttPattern.FindStringSubmatch(body)
 	if len(matches) <= 1 {
-		return item, fmt.Errorf("No IFTTT Link in the body")
+		return item, fmt.Errorf("no IFTTT Link in the body")
 	}
 
 	url := matches[1]
